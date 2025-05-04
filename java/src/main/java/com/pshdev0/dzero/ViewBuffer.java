@@ -1,5 +1,6 @@
 package com.pshdev0.dzero;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -11,6 +12,7 @@ import java.security.MessageDigest;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
+import java.util.zip.Deflater;
 
 public class ViewBuffer {
 
@@ -23,6 +25,7 @@ public class ViewBuffer {
     public static final String ENCODE_INT8 = "i1";
     public static final String ENCODE_INT16 = "i2";
     public static final String ENCODE_INT32 = "i4";
+    public static final String ENCODE_BYTE_POINTER_32 = "bp";
     public static final String ENCODE_FLOAT32 = "f4";
     public static final String ENCODE_BOOL = "bl";
     public static final String ENCODE_TAB = "   ";
@@ -106,6 +109,10 @@ public class ViewBuffer {
         addBytes(ENCODE_INT32 + id, 4, value & 255, (value >> 8) & 255, (value >> 16) & 255, (value >> 24) & 255);
     }
 
+    public void addUBytePointer(String id) {
+        addBytes(ENCODE_BYTE_POINTER_32 + id, 4, 0, 0, 0, 0, 0, 0, 0, 0);
+    }
+
     public void addFloat32(String id, float value) {
         var bits = Float.floatToIntBits(value);
         addBytes(ENCODE_FLOAT32 + id, 4, bits & 255, (bits >> 8) & 255, (bits >> 16) & 255, (bits >> 24) & 255);
@@ -150,7 +157,8 @@ public class ViewBuffer {
                 ENCODE_INT16, "short",
                 ENCODE_INT32, "int",
                 ENCODE_FLOAT32, "float",
-                ENCODE_BOOL, "bool"
+                ENCODE_BOOL, "bool",
+                ENCODE_BYTE_POINTER_32, "ubyte*"
         );
 
         var tokens = structEncoding.split(ENCODE_SEPARATOR);
@@ -311,5 +319,28 @@ public class ViewBuffer {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public static ViewBuffer compress(ViewBuffer buffer) {
+        var data = new byte[buffer.bytes.size()];
+        for (var c1 = 0; c1 < buffer.bytes.size(); c1++) {
+            data[c1] = (byte)(buffer.bytes.get(c1) & 0xFF);
+        }
+        Deflater deflater = new Deflater();
+        deflater.setInput(data);
+        deflater.finish();
+
+        byte[] outBuffer = new byte[1024];
+        ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+
+        while (!deflater.finished()) {
+            int count = deflater.deflate(outBuffer);
+            outputStream.write(outBuffer, 0, count);
+        }
+
+        var compressedBytes = outputStream.toByteArray();
+        System.out.println("Compressed to " + (outputStream.size() / (float)data.length) * 100 + "% of original size");
+
+        return ViewBuffer.byteArray(compressedBytes);
     }
 }

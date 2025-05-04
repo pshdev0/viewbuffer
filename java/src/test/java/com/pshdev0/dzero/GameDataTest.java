@@ -31,7 +31,7 @@ public class GameDataTest {
                     int numDummyLayers = 2;
                     for(var layerId = 0; layerId < numDummyLayers; layerId++) {   // (we flatten the 2d array to 1d)
 
-                        int numDummyExportValues = 7;
+                        int numDummyExportValues = 32;
                         var temp = new short[numDummyExportValues];
                         for (var exportValue = 0; exportValue < numDummyExportValues; exportValue++) {
                             temp[exportValue] = ((Integer)exportValue).shortValue();
@@ -43,8 +43,9 @@ public class GameDataTest {
                         layerItem.addBool("visible", layerId % 2 == 0);
                         layerItem.addInt32("rows", 123);
                         layerItem.addInt32("cols", 123);
-                        layerItem.addArraySlice("data", bytesDataArray); // todo - deflate this
-
+                        layerItem.addArraySlice("compressedBytes", ViewBuffer.compress(bytesDataArray));
+                        layerItem.addUBytePointer("data");
+                        layerItem.addInt32("decompressedLength", bytesDataArray.size());
                         layerArray.addArrayItem(layerItem);
                     }
                     level.addArraySlice("layers", layerArray);
@@ -148,7 +149,7 @@ public class GameDataTest {
                 atlasBuffer.addInt32("height", 600 + spriteAtlasId);
                 atlasBuffer.addInt32("size", 10);
 
-                var imageBytesArray = ViewBuffer.byteArray(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }); // todo - deflate this !
+                var imageBytesArray = ViewBuffer.byteArray(new byte[] { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 }); // todo - maybe deflate this, not sure since can just use flat buffer data?
                 var coordsArray = ViewBuffer.floatArray(1, 2, 3, 4, 5, 6);
 
                 atlasBuffer.addArraySlice("bytes", imageBytesArray);
@@ -203,8 +204,10 @@ public class GameDataTest {
                 soundBuffer.addString("id", "Dummy Sound " + soundId);
                 soundBuffer.addInt32("size", 7);
 
-                var bytesBuffer = ViewBuffer.byteArray(new byte[] { 1, 2, 3, 4, 5, 6, 7 }); // todo - deflate !
-                soundBuffer.addArraySlice("bytes", bytesBuffer);
+                var bytesBuffer = ViewBuffer.byteArray(new byte[] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 });
+                soundBuffer.addArraySlice("compressedBytes", ViewBuffer.compress(bytesBuffer));
+                soundBuffer.addUBytePointer("data");
+                soundBuffer.addInt32("decompressedLength", soundBuffer.size());
 
                 soundArray.addArrayItem(soundBuffer);
             }

@@ -222,13 +222,24 @@ int getSliceLayout() @nogc nothrow {
 }
 
 string getType(string code) @nogc nothrow {
-    if (code == "st") return "immutable(char)";
-    if (code == "i1") return "ubyte";
-    if (code == "i2") return "short";
-    if (code == "i4") return "int";
-    if (code == "f4") return "float";
-    if (code == "bl") return "bool";
-    return code; // fallback
+    switch(code) {
+        case "st":
+            return "immutable(char)";
+        case "i1":
+            return "ubyte";
+        case "i2":
+            return "short";
+        case "i4":
+            return "int";
+        case "f4":
+            return "float";
+        case "bl":
+            return "bool";
+        case "bp":
+            return "ubyte*";
+        default:
+            return code;
+    }
 }
 
 void generateStructs(string structEncoding) @nogc nothrow {
@@ -366,7 +377,9 @@ unittest {
         bool visible;
         int rows;
         int cols;
-        short[] data;
+        ubyte[] compressedBytes;
+        ubyte* data;
+        int decompressedLength;
     }
 
     struct Level {
@@ -472,7 +485,9 @@ unittest {
     struct Sound {
         immutable(char)[] id;
         int size;
-        ubyte[] bytes;
+        ubyte[] compressedBytes;
+        ubyte* data;
+        int decompressedLength;
     }
 
     struct Object3d {
