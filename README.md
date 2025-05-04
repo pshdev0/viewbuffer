@@ -1,6 +1,6 @@
 # ViewBuffer - Self-Describing Zero-Copy Memory in D
 
-No schemas or code gen required.
+Self-describing flat buffer for D. No schemas or code gen required.
 
 Current read support for:
 
