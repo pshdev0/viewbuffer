@@ -1,6 +1,8 @@
 # ViewBuffer - Self-Describing Zero-Copy Memory in D
 
-No schemas or code gen required. Planned read support for:
+No schemas or code gen required.
+
+Current read support for:
 
 * D (working)
 * C, Java, Swift, Kotlin (wip)
