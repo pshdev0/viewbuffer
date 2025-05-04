@@ -1,6 +1,8 @@
-# ViewBuffer - Self-Describing Zero-Copy Memory in D
+# ViewBuffer - Schemaless Codeless Self-Describing Zero-Copy Flat Buffer for D
 
-No schemas or code gen required. Planned read support for:
+Self-describing flat buffer for D. No schemas or code gen required. Viewbuffer is slice-oriented and it's home is D, but will be adapted for read/write between multiple languages.
+
+Current read support for:
 
 * D (working)
 * C, Java, Swift, Kotlin (wip)
