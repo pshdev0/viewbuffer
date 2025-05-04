@@ -44,8 +44,7 @@ public class GameDataTest {
                         layerItem.addInt32("rows", 123);
                         layerItem.addInt32("cols", 123);
                         layerItem.addArraySlice("compressedBytes", ViewBuffer.compress(bytesDataArray));
-                        layerItem.addUBytePointer("data");
-                        layerItem.addInt32("decompressedLength", bytesDataArray.size());
+                        layerItem.addNullPointerSlice("decompressedBytes", "ubyte");
                         layerArray.addArrayItem(layerItem);
                     }
                     level.addArraySlice("layers", layerArray);
@@ -206,8 +205,7 @@ public class GameDataTest {
 
                 var bytesBuffer = ViewBuffer.byteArray(new byte[] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 });
                 soundBuffer.addArraySlice("compressedBytes", ViewBuffer.compress(bytesBuffer));
-                soundBuffer.addUBytePointer("data");
-                soundBuffer.addInt32("decompressedLength", soundBuffer.size());
+                soundBuffer.addNullPointerSlice("decompressedBytes", "ubyte");
 
                 soundArray.addArrayItem(soundBuffer);
             }

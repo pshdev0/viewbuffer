@@ -109,8 +109,8 @@ public class ViewBuffer {
         addBytes(ENCODE_INT32 + id, 4, value & 255, (value >> 8) & 255, (value >> 16) & 255, (value >> 24) & 255);
     }
 
-    public void addUBytePointer(String id) {
-        addBytes(ENCODE_BYTE_POINTER_32 + id, 4, 0, 0, 0, 0, 0, 0, 0, 0);
+    public void addNullPointerSlice(String id, String type) {
+        addBytes(ENCODE_SLICE + id + ENCODE_ARRAY + type, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
     public void addFloat32(String id, float value) {

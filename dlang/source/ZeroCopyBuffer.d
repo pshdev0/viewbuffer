@@ -3,6 +3,9 @@ module dzero;
 import core.stdc.stdio : FILE, fopen, fread, fclose, fseek, ftell, fclose, printf;
 import core.stdc.stdlib : malloc, free;
 import core.stdc.string : memset, strcmp;
+import std.stdio : writeln;
+import std.zlib : uncompress;
+import std.stdio : writeln;
 
 enum ENCODE_SEPARATOR = ',';
 enum ENCODE_STRUCT = '$';
@@ -242,6 +245,13 @@ string getType(string code) @nogc nothrow {
     }
 }
 
+ubyte[] decompress(ubyte[] compressedBytes) {
+    // `uncompress` returns void[], cast to ubyte[]
+    ubyte[] decompressed = cast(ubyte[]) uncompress(cast(void[]) compressedBytes);
+    writeln("Decompressed size: ", decompressed.length);
+    return decompressed;
+}
+
 void generateStructs(string structEncoding) @nogc nothrow {
     size_t start = 0;
     size_t len = structEncoding.length;
@@ -378,8 +388,7 @@ unittest {
         int rows;
         int cols;
         ubyte[] compressedBytes;
-        ubyte* data;
-        int decompressedLength;
+        ubyte[] decompressedBytes;
     }
 
     struct Level {
@@ -486,8 +495,7 @@ unittest {
         immutable(char)[] id;
         int size;
         ubyte[] compressedBytes;
-        ubyte* data;
-        int decompressedLength;
+        ubyte[] decompressedBytes;
     }
 
     struct Object3d {
@@ -526,6 +534,10 @@ unittest {
         printf("error viewing buffer");
         return;
     }
+
+    // decompress bytes into dummy slices !
+    fb.sounds[0].decompressedBytes = decompress(fb.sounds[0].compressedBytes);
+    fb.sounds[1].decompressedBytes = decompress(fb.sounds[1].compressedBytes);
 
     // print stuff
     writeln(*fb);
