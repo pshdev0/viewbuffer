@@ -1,4 +1,4 @@
-# ViewBuffer - Self-Describing Zero-Copy Memory in D
+# ViewBuffer - Schemaless Codeless Self-Describing Zero-Copy Memory in D
 
 Self-describing flat buffer for D. No schemas or code gen required.
 
