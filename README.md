@@ -48,7 +48,6 @@ Currently available flags are:
 
 # TODO
 
-* Add header length and blob length to the header
 * Add support for more types, e.g. `double`, etc
 * Ensure signed / unsigned compatibility
 * Add more tests

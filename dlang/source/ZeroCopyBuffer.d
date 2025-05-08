@@ -3,9 +3,8 @@ module dzero;
 import core.stdc.stdio : FILE, fopen, fread, fclose, fseek, ftell, fclose, printf;
 import core.stdc.stdlib : malloc, free;
 import core.stdc.string : memset, strcmp;
-import std.stdio : writeln;
-import std.zlib : uncompress;
-import std.stdio : writeln;
+//import std.zlib : uncompress;
+//import std.stdio : writeln;
 
 enum ENCODE_SEPARATOR = ',';
 enum ENCODE_STRUCT = '$';
@@ -298,24 +297,72 @@ int getSliceLayout() @nogc nothrow {
 }
 
 string getType(string code) @nogc nothrow {
-    static immutable string[string] typeMap = [
-        "st": "immutable(char)",
-        "i1": "ubyte",
-        "i2": "short",
-        "i4": "int",
-        "f4": "float",
-        "bl": "bool",
-        "bp": "ubyte*"
-    ];
-    return code in typeMap ? typeMap[code] : code;
+    // BetterC compatible:
+    if (code == "st")    return "immutable(char)";
+    else if (code == "i1") return "ubyte";
+    else if (code == "i2") return "short";
+    else if (code == "i4") return "int";
+    else if (code == "f4") return "float";
+    else if (code == "bl") return "bool";
+    else if (code == "bp") return "ubyte*";
+    else return code;
 }
 
-ubyte[] decompress(ubyte[] compressedBytes) {
-    // `uncompress` returns void[], cast to ubyte[]
-    ubyte[] decompressed = cast(ubyte[]) uncompress(cast(void[]) compressedBytes);
-    writeln("Decompressed size: ", decompressed.length);
-    return decompressed;
+//ubyte[] decompress(ubyte[] compressedBytes) {
+//    // `uncompress` returns void[], cast to ubyte[]
+//    ubyte[] decompressed = cast(ubyte[]) uncompress(cast(void[]) compressedBytes);
+//    writeln("Decompressed size: ", decompressed.length);
+//    return decompressed;
+//}
+
+version (BetterC)
+{
+    import core.stdc.stdlib : malloc, free;
+    import core.stdc.zlib   : uncompress, Z_OK;
+    import core.stdc.stdio  : printf;
+
+    /**
+     * Decompress `comp` into a newly malloc’d buffer of size `expectedSize`.
+     * Returns a D slice pointing at that buffer; you must call `free(out.ptr)`
+     * when you’re done with it.
+     */
+    ubyte[] decompress(const(ubyte)[] comp, size_t expectedSize) @nogc nothrow
+    {
+        auto destPtr = cast(ubyte*) malloc(expectedSize);
+        if (destPtr is null)
+        return [];                        // out of memory → empty slice
+
+        size_t destLen = expectedSize;
+        int status = uncompress(destPtr,
+        &destLen,
+        comp.ptr,
+        comp.length);
+        if (status != Z_OK)
+        {
+            free(destPtr);
+            return [];
+        }
+
+        printf("Decompressed size: %zu\n", destLen);
+
+        // build and return the slice
+        return destPtr[0 .. destLen];
+    }
 }
+else
+{
+    import std.zlib    : uncompress;
+    import std.stdio   : writeln;
+
+    /// Runtime D: GC‑backed slice
+    ubyte[] decompress(const(ubyte)[] comp, size_t = 0)
+    {
+        auto outData = cast(ubyte[]) uncompress(cast(void[]) comp);
+        writeln("Decompressed size: ", outData.length);
+        return outData;
+    }
+}
+
 
 void generateStructs(string structEncoding) @nogc nothrow {
     size_t start = 0;
@@ -547,7 +594,7 @@ unittest {
         Object3d[] obj3d;
     }
 
-    import std.stdio;
+    //import std.stdio;
 
     auto rawData = loadViewBuffer("../../data/game.bin");
     if(!rawData.valid()) {
@@ -562,9 +609,14 @@ unittest {
     }
 
     // decompress bytes into dummy slices !
-    fb.sounds[0].decompressedBytes = decompress(fb.sounds[0].compressedBytes);
-    fb.sounds[1].decompressedBytes = decompress(fb.sounds[1].compressedBytes);
+    fb.sounds[0].decompressedBytes = decompress(fb.sounds[0].compressedBytes, fb.sounds[0].size);
+    fb.sounds[1].decompressedBytes = decompress(fb.sounds[1].compressedBytes, fb.sounds[0].size);
 
-    // print stuff
-    writeln(*fb);
+    version(BetterC) {
+        printf("len0 = %d\n", fb.sounds[0].decompressedBytes.length);
+        printf("len1 = %d\n", fb.sounds[1].decompressedBytes.length);
+    }
+    else {
+        writeln(*fb);
+    }
 }

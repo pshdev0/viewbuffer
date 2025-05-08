@@ -201,7 +201,7 @@ public class GameDataTest {
             for(var soundId = 0; soundId < numDummySounds; soundId++) {
                 var soundBuffer = ViewBuffer.struct("Sound");
                 soundBuffer.addString("id", "Dummy Sound " + soundId);
-                soundBuffer.addInt32("size", 7);
+                soundBuffer.addInt32("size", 16);
 
                 var bytesBuffer = ViewBuffer.byteArray(new byte[] { 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1 });
                 soundBuffer.addArraySlice("compressedBytes", ViewBuffer.compress(bytesBuffer));
