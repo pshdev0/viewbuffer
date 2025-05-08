@@ -5,12 +5,12 @@ Self-describing flat buffer for D. No schemas or code gen required. Viewbuffer i
 Current read support for:
 
 * D (working)
-* C, Java, Swift, Kotlin (wip)
+* C, Java, Swift, Kotlin, Rust, Go (wip)
 
 Current write support for:
 
 * Java (working)
-* D, C, Swift, Kotlin (wip)
+* D, C, Swift, Kotlin, Rust, Go (wip)
 
 Minimal code to easily port read/write to different languages as required.
 
