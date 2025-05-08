@@ -42,7 +42,7 @@ Currently available flags are:
 
 | Bit | Effect When Set                                          |
 |-----|----------------------------------------------------------|
-| 0   | Blob compression on (not yet implemented)                |
+| 0   | Blob compression on                                      |
 | 1   | Includes the struct encoding in the ViewBuffer           |
 | 2   | Includes a truncated SHA-256 hash of the struct encoding |
 
