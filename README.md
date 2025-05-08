@@ -29,7 +29,7 @@ The binary format is relatively simple:
 | 2       | N         | Struct encoding length    | Depends on flag bit 1            |
 | 1+      | N         | Struct encoding           | Depends on flag bit 1            |
 | ...     |           |                           |                                  |
-| 0-3     | Y         | Padding                   | To 4-byte alignment              |
+| 0-3     | N         | Padding                   | To 4-byte alignment              |
 | 4       | Y         | Number of offsets `N`     | Offsets to slice pointers        |
 | 4N      | N         | List of offsets           | At least 0 offsets, 4 bytes each |
 | ...     |           |                           |                                  |
