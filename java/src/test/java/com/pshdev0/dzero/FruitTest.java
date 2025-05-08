@@ -36,7 +36,8 @@ public class FruitTest {
             short version = 1;
             boolean encodeStruct = true;
             boolean includeStructHash = true;
-            core.writeBuffer("../data/fruits.bin", version, encodeStruct, includeStructHash);
+            boolean compressBlob = true;
+            core.writeBuffer("../data/fruits.bin", version, encodeStruct, includeStructHash, compressBlob);
         });
     }
 

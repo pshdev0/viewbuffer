@@ -240,7 +240,8 @@ public class GameDataTest {
             short version = 1;
             boolean encodeStruct = true;
             boolean includeStructHash = true;
-            core.writeBuffer("../data/game.bin", version, encodeStruct, includeStructHash);
+            boolean compressBlob = false;
+            core.writeBuffer("../data/game.bin", version, encodeStruct, includeStructHash, compressBlob);
         });
     }
 

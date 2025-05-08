@@ -18,19 +18,22 @@ The binary format is relatively simple:
 
 | # Bytes | Mandatory | Description               | Notes                            |
 |---------|-----------|---------------------------|----------------------------------|
-| `4`     | Y         | Magic "VBUF"              | Value of `0x46554256`            |
-| `1`     | Y         | ViewBuffer version        | e.g. `1` at the moment           |
-| `1`     | Y         | Flags                     | See below                        |
-| `2`     | Y         | User-defined blob version | e.g. `1`                         |
-| `16`    | N         | Struct encoding hash      | Depends on flag bit 2            |
-| `2`     | N         | Struct encoding length    | Depends on flag bit 1            |
-| `1+`    | N         | Struct encoding           | Depends on flag bit 1            |
+| 4       | Y         | Magic "VBUF"              | Value of `0x46554256`            |
+| 1       | Y         | ViewBuffer version        | e.g. `1` at the moment           |
+| 1       | Y         | Flags                     | See below                        |
+| 2       | Y         | User-defined blob version | e.g. `1`                         |
+| 4       | Y         | Header size               |                                  |
+| 4       | Y         | Compressed blob size      |                                  |
+| 4       | Y         | Decompressed blob size    |                                  |
+| 16      | N         | Struct encoding hash      | Depends on flag bit 2            |
+| 2       | N         | Struct encoding length    | Depends on flag bit 1            |
+| 1+      | N         | Struct encoding           | Depends on flag bit 1            |
 | ...     |           |                           |                                  |
-| `0-3`   | Y         | Padding                   | To 4-byte alignment              |
-| `4`     | Y         | Number of offsets `N`     | Offsets to slice pointers        |
-| `4N`    | N         | List of offsets           | At least 0 offsets, 4 bytes each |
+| 0-3     | Y         | Padding                   | To 4-byte alignment              |
+| 4       | Y         | Number of offsets `N`     | Offsets to slice pointers        |
+| 4N      | N         | List of offsets           | At least 0 offsets, 4 bytes each |
 | ...     |           |                           |                                  |
-| `1+`    | Y         | Data blob                 | Compressed on flag bit 0         |
+| 1+      | Y         | Data blob                 | Compressed on flag bit 0         |
 | ...     |           |                           |                                  |
 
 Offsets are bytes from the start of the blob which need adjusting to update pointers depending on where the blob is loaded into memory on the target machine. This is all automatic.

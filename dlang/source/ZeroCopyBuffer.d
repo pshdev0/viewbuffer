@@ -12,11 +12,13 @@ enum ENCODE_STRUCT = '$';
 enum ENCODE_SLICE = '*';
 enum ENCODE_INSITU_STRUCT = '^';
 enum ENCODE_ARRAY = '[';
+enum TAB = "   ";
 
 struct SaferRawSlice(T) {
     T[] data;
     bool _valid;
     bool _secret;
+    string id;
 
     @disable this();
 
@@ -31,7 +33,7 @@ struct SaferRawSlice(T) {
     }
 
     ~this() @nogc nothrow {
-        if (data.ptr !is null) {
+        if (_valid && data.ptr !is null) {
             free(data.ptr);
             printf("SaferRawSlice: freed buffer");
 
@@ -55,139 +57,150 @@ struct SaferRawSlice(T) {
     bool valid() @nogc nothrow {
         return _valid;
     }
+
+    static SaferRawSlice!T move(ref SaferRawSlice!T src) @nogc nothrow {
+        auto tmp = src;
+        src.data = null;
+        src.id = null;
+        src._valid = false;
+        src._secret = false;
+        return tmp;
+    }
 }
 
-extern(C) nothrow @nogc int posix_memalign(void** memptr, size_t alignment, size_t size);
+SaferRawSlice!ubyte loadViewBuffer(const char* fileName) @nogc nothrow {
 
-SaferRawSlice!ubyte loadBinary(const char* fileName) @nogc nothrow {
-    FILE* file = fopen(fileName, "rb");
-    if (file is null) {
-        printf("Could not load file\n");
-        return SaferRawSlice!ubyte.empty();
-    }
-
-    // get file size
-    fseek(file, 0, 2);
-    long fileSize = ftell(file);
-    fseek(file, 0, 0);
-    printf("file size %zu\n", fileSize);
-
-    // allocate buffer
-    void* ptr;
-    int res = posix_memalign(&ptr, 16, cast(size_t) fileSize);
-    if (res != 0 || ptr is null)
-    assert(0, "posix_memalign failed");
-
-    ubyte* buffer = cast(ubyte*) ptr; // 64-byte alignment, 1024 bytes
-    scope(exit) {
-        //free(buffer);
-        printf("Returning from loadBinary - malloced memory is automatically managed via SaferRawSlice\n");
-    }
-    if (buffer is null) {
-        printf("buffer was null");
-        fclose(file);
-        return SaferRawSlice!ubyte.empty();
-    }
-
-    // read file contents
-    size_t readSize = fread(buffer, 1, cast(size_t) fileSize, file);
-    fclose(file);
-    if (readSize != cast(size_t) fileSize) {
-        free(buffer);
-        return SaferRawSlice!ubyte.empty();
-    }
-
-    return SaferRawSlice!ubyte(buffer, readSize);
-}
-
-T* flatBufferFromBinary(T)(ubyte[] rawData) @nogc nothrow {
-    auto blobPtr = processFlatBuffer(rawData.ptr, rawData.length);
-    auto offset = cast(size_t)(blobPtr - rawData.ptr);
-    auto blob = rawData[offset .. $];
-    return cast(T*)(blob.ptr);
-}
-
-ubyte* processFlatBuffer(ubyte* data, size_t dataLength) @nogc nothrow {
     /*
-        .------------------- HEADER ---------------------.
-        | 0       magic "VBUF" 0x46554256                |
-        | 4       version (1)                            |
-        | 5       flags (1 = compressed)                 |
-        | 6       struct encoding length N (=4k)         |
-        | 8       number of offsets M                    |
-        | 12      struct encoding data (4-bytes aligned) |
-        | ...                                            |
-        | 12+N    offset 1                               |
-        | 20      offset 2                               |
-        | ...                                            |
-        | 12+N+4M offset M                               |
-        |-------------- DATA ----------------------------|
-        | 16+4N   blob (possibly compressed)             |
-        | ...                                            |
-        `------------------------------------------------`
+
+        | # Bytes | Mandatory | Description               | Notes                            |
+        |---------|-----------|---------------------------|----------------------------------|
+        | 4       | Y         | Magic "VBUF"              | Value of `0x46554256`            |
+        | 1       | Y         | ViewBuffer version        | e.g. `1` at the moment           |
+        | 1       | Y         | Flags                     | See below                        |
+        | 2       | Y         | User-defined blob version | e.g. `1`                         |
+        | 4       | Y         | Header size               |                                  |
+        | 4       | Y         | Compressed blob size      |                                  |
+        | 4       | Y         | Decompressed blob size    |                                  |
+        | 16      | N         | Struct encoding hash      | Depends on flag bit 2            |
+        | 2       | N         | Struct encoding length    | Depends on flag bit 1            |
+        | 1+      | N         | Struct encoding           | Depends on flag bit 1            |
+        | ...     |           |                           |                                  |
+        | 0-3     | Y         | Padding                   | To 4-byte alignment              |
+        | 4       | Y         | Number of offsets `N`     | Offsets to slice pointers        |
+        | 4N      | N         | List of offsets           | At least 0 offsets, 4 bytes each |
+        | ...     |           |                           |                                  |
+        | 1+      | Y         | Data blob                 | Compressed on flag bit 0         |
+        | ...     |           |                           |                                  |
+
      */
 
-    int magic = cast(int)(data[0] | (data[1] << 8) | (data[2] << 16) | (data[3] << 24));
+    /*
+        DECODE THE MAIN HEADER DETAILS
+     */
+
+    auto header1 = loadBinary(fileName, 0, 20); // read only first 20 bytes
+    auto headerSlice1 = header1.slice();
+    auto headerPtr1 = headerSlice1.ptr;
+
+    // magic
+    int magic = *cast(int*) &headerPtr1[0];
     if (magic != 0x46554256) {
-        printf("Incorrect view buffer format");
-        return null;
+        printf("Incorrect view buffer format\n");
+        printf("magic %d\n", magic);
+        return SaferRawSlice!ubyte.empty();
     }
+    printf("ViewBuffer file found\n");
 
-    int viewBufferVersion = cast(int)data[4];
+    // view buffer version
+    int viewBufferVersion = cast(int)headerPtr1[4];
     if (viewBufferVersion != 1) {
-        printf("Unknown view buffer version: %i", viewBufferVersion);
-        return null;
+        printf("Unknown view buffer version: %i\n", viewBufferVersion);
+        return SaferRawSlice!ubyte.empty();
     }
 
-    ubyte flags = cast(ubyte)data[5];
+    // flags
+    ubyte flags = cast(ubyte)headerPtr1[5];
     bool compressed = flags & 1 ? true : false;
     bool encodingPresent = flags & 2 ? true : false;
     bool encodingVersionHashPresent = flags & 4 ? true : false;
 
-    if(compressed) printf("Data is compressed\n"); else printf("Data is not compressed\n");
+    if(compressed) printf(TAB ~ "Data is compressed\n"); else printf(TAB ~ "Data is not compressed\n");
 
-    short userDefinedVersion = cast(short)(data[6] | (data[7] << 8));
-    printf("User defined schema version: %d\n", userDefinedVersion);
+    // user-defined blob version
+    short userDefinedBlobVersion = *cast(short*) &headerPtr1[6];
+    printf(TAB ~ "User defined schema version: %d\n", userDefinedBlobVersion);
 
-    int dynamicIndex = 8;
+    // header size
+    int headerSize = *cast(int*) &headerPtr1[8];
+    printf(TAB ~ "header size = %d\n", headerSize);
+
+    // compressed size (always present, even if not compressed)
+    int compressedSize = *cast(int*) &headerPtr1[12];
+    printf(TAB ~ "compressed size = %d\n", compressedSize);
+
+    // final blob size
+    int finalBlobSize = *cast(int*) &headerPtr1[16];
+    printf(TAB ~ "final blob size = %d\n", finalBlobSize);
+
+    /*
+        GET THE BLOB BYTES (POSSIBLY COMPRESSED)
+     */
+
+    SaferRawSlice!ubyte decompressedBlob = SaferRawSlice!ubyte.empty();
+
+    if (compressed) {
+        auto temp = loadBinary(fileName, headerSize, headerSize + compressedSize);
+        decompressedBlob = SaferRawSlice!ubyte.move(temp);
+        // todo - decompress and set decompressedBlob
+    }
+    else {
+        auto temp = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
+        decompressedBlob = SaferRawSlice!ubyte.move(temp);
+    }
+
+    auto decompressedBlobSlice = decompressedBlob.slice();
+
+    /*
+        DECODE REMAINDER OF THE HEADER AND UPDATE THE POINTER OFFSETS
+     */
+
+    auto header2 = loadBinary(fileName, 20, headerSize);
+    auto headerSlice2 = header2.slice();
+    auto headerPtr2 = headerSlice2.ptr;
+
+    auto dynamicIndex = 0;
+
     if(encodingVersionHashPresent) {
         printf("Schema version hash: ");
-        for(; dynamicIndex < 24; dynamicIndex++) printf("%02x", data[dynamicIndex]);
+        for(auto c1 = 0; c1 < 16; c1++) printf("%02x", headerPtr2[dynamicIndex++]);
         printf("\n");
     }
     else printf("No schema version hash found\n");
 
     if(encodingPresent) {
-        short structEncodingLength = cast(short)(data[dynamicIndex++] | (data[dynamicIndex++] << 8));
+        short structEncodingLength = *cast(short*) &headerPtr2[dynamicIndex];
+        dynamicIndex += 2;
         printf("struct encoding length %d\n", structEncodingLength);
-        string structEncoding = cast(string)data[dynamicIndex .. dynamicIndex + structEncodingLength];
+        string structEncoding = cast(string)headerPtr2[dynamicIndex .. dynamicIndex + structEncodingLength];
         generateStructs(structEncoding);
         dynamicIndex += structEncodingLength;
     }
 
     // get number of offsets to update
-    int numOffsets = cast(int)(
-        data[dynamicIndex++] |
-            (data[dynamicIndex++] << 8) |
-            (data[dynamicIndex++] << 16) |
-            (data[dynamicIndex++] << 24)
-    );
+    int numOffsets = *cast(int*) &headerPtr2[dynamicIndex];
+    dynamicIndex += 4;
 
-    // compute base pointer as a size_t
-    int offsetsStart = dynamicIndex; // 12 + structEncodingLength;
-    int dataOffset = offsetsStart + 4 * numOffsets;
-
-    ubyte* blob = data + dataOffset;
-    size_t base = cast(size_t) blob;
+    size_t base = cast(size_t) decompressedBlobSlice.ptr;
 
     // determine slice layout
     size_t ptrOffset = getSliceLayout();
 
     // update all offsets to be pointers
-    for (int index = offsetsStart; index < dataOffset; index += 4) {
-        int offset = data[index] | (data[index + 1] << 8) | (data[index + 2] << 16) | (data[index + 3] << 24);
+    for (int c1 = 0; c1 < numOffsets; c1++) {
+        int offset = *cast(int*) &headerPtr2[dynamicIndex];
+        dynamicIndex += 4;
 
-        size_t* p = cast(size_t*)(blob + offset);
+        size_t* p = cast(size_t*)(base + offset);
         size_t ptrVal = p[0];
         size_t lenVal = p[1];
 
@@ -202,9 +215,69 @@ ubyte* processFlatBuffer(ubyte* data, size_t dataLength) @nogc nothrow {
             p[1] = lenVal;
         }
     }
-    printf("DONE!\n");
 
-    return blob;
+    // headerSlice1, headerSlice2, and compresedBlobSlice (if the data was compressed)
+    // memory will be deallocated on scope exit via SaferRawSlice
+    return SaferRawSlice!ubyte.move(decompressedBlob);
+}
+
+extern(C) nothrow @nogc int posix_memalign(void** memptr, size_t alignment, size_t size);
+
+SaferRawSlice!ubyte loadBinary(const char* fileName, size_t start = 0, size_t end = 0) @nogc nothrow {
+    FILE* file = fopen(fileName, "rb");
+    if (file is null) {
+        printf("Could not load file\n");
+        return SaferRawSlice!ubyte.empty();
+    }
+
+    // get file size
+    fseek(file, 0, 2);
+    long fileSize = ftell(file);
+    fseek(file, 0, 0);
+    printf("file size %zu\n", fileSize);
+
+    if (end == 0 || end > cast(size_t)fileSize)
+    end = cast(size_t)fileSize;
+
+    if (start >= end) {
+        printf("Invalid range: start >= end\n");
+        fclose(file);
+        return SaferRawSlice!ubyte.empty();
+    }
+
+    size_t bytesToRead = end - start;
+
+    // allocate buffer
+    void* ptr;
+    int res = posix_memalign(&ptr, 16, bytesToRead);
+    if (res != 0 || ptr is null)
+    assert(0, "posix_memalign failed");
+
+    ubyte* buffer = cast(ubyte*) ptr;
+    scope(exit) {
+        //free(buffer);
+        printf("Returning from loadBinary - malloced memory is automatically managed via SaferRawSlice\n");
+    }
+
+    if (fseek(file, cast(long)start, 0) != 0) {
+        printf("fseek failed\n");
+        fclose(file);
+        free(buffer);
+        return SaferRawSlice!ubyte.empty();
+    }
+
+    size_t readSize = fread(buffer, 1, bytesToRead, file);
+    fclose(file);
+    if (readSize != bytesToRead) {
+        free(buffer);
+        return SaferRawSlice!ubyte.empty();
+    }
+
+    return SaferRawSlice!ubyte(buffer, readSize);
+}
+
+T* getViewBufferSliceAs(T)(ubyte[] rawData) @nogc nothrow {
+    return cast(T*)(rawData.ptr);
 }
 
 int getSliceLayout() @nogc nothrow {
@@ -225,24 +298,16 @@ int getSliceLayout() @nogc nothrow {
 }
 
 string getType(string code) @nogc nothrow {
-    switch(code) {
-        case "st":
-            return "immutable(char)";
-        case "i1":
-            return "ubyte";
-        case "i2":
-            return "short";
-        case "i4":
-            return "int";
-        case "f4":
-            return "float";
-        case "bl":
-            return "bool";
-        case "bp":
-            return "ubyte*";
-        default:
-            return code;
-    }
+    static immutable string[string] typeMap = [
+        "st": "immutable(char)",
+        "i1": "ubyte",
+        "i2": "short",
+        "i4": "int",
+        "f4": "float",
+        "bl": "bool",
+        "bp": "ubyte*"
+    ];
+    return code in typeMap ? typeMap[code] : code;
 }
 
 ubyte[] decompress(ubyte[] compressedBytes) {
@@ -335,45 +400,6 @@ void generateStructs(string structEncoding) @nogc nothrow {
 
     if (structOpen) printf("}\n");
 }
-
-//unittest {
-//    struct Fruit {
-//        string id;
-//        int size;
-//
-//        ubyte[] bytes;
-//    }
-//
-//    struct FruitBasket {
-//        string title;
-//        string subTitle;
-//        string footer;
-//
-//        Fruit[] fruits;
-//    }
-//
-//    //SFruit,stid,insize,ub[bytes,SFruitBasket,sttitle,stsubTitle,stfooter, SFruit[fruits,
-//    //S1,st,in,ub[,S2,st,st,st, S1[,
-//
-//    auto rawData = loadBinary("../../data/fruits.bin");
-//    if(!rawData.valid()) {
-//        printf("Could not load the buffer\n");
-//        return;
-//    }
-//    auto fb = flatBufferFromBinary!FruitBasket(rawData.slice());
-//
-//    if(fb is null) {
-//        printf("error viewing buffer");
-//        return;
-//    }
-//
-//    // print stuff
-//    printf("title = %s\n", fb.title.ptr);
-//    printf("subtitle = %s\n", fb.subTitle.ptr);
-//    printf("footer = %s\n", fb.footer.ptr);
-//
-//    printf("fruits.length = %zu\n", fb.fruits.length);
-//}
 
 unittest {
     struct Colour {
@@ -523,12 +549,12 @@ unittest {
 
     import std.stdio;
 
-    auto rawData = loadBinary("../../data/game.bin");
+    auto rawData = loadViewBuffer("../../data/game.bin");
     if(!rawData.valid()) {
         printf("Could not load the buffer\n");
         return;
     }
-    auto fb = flatBufferFromBinary!Core(rawData.slice());
+    auto fb = getViewBufferSliceAs!Core(rawData.slice());
 
     if(fb is null) {
         printf("error viewing buffer");

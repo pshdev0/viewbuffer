@@ -36,6 +36,7 @@ public class ViewBuffer {
     public static final int HEADER_FLAG_COMPRESS_DATA = 1;
     public static final int HEADER_FLAG_INCLUDE_STRUCT_ENCODING = 2;
     public static final int HEADER_FLAG_INCLUDE_STRUCT_ENCODING_VERSION_HASH = 4;
+    public static final int HEADER__TODO__COMPRESS_STRUCT_ENCODING = 8;
 
     enum Type { STRUCT, ARRAY }
     Type type;
@@ -91,47 +92,49 @@ public class ViewBuffer {
     public void addInt32(String id, int ... list) { for (var i : list) addInt32(ENCODE_INT32 + id, i); }
     public void addFloat32(String id, float ... list) { for(var f : list) addFloat32(ENCODE_FLOAT32 + id, f); }
 
-    public void addStruct(String id, ViewBuffer zcb) {
+    public int addStruct(String id, ViewBuffer zcb) {
         var structName = zcb.structString.split(ENCODE_SEPARATOR)[0];
-        addBytes(ENCODE_INSITU_STRUCT +id + structName, zcb.maxAlignment, zcb.bytes.toArray(Integer[]::new));
+        return addBytes(ENCODE_INSITU_STRUCT +id + structName, zcb.maxAlignment, zcb.bytes.toArray(Integer[]::new));
     }
 
-    public void addArraySlice(String id, ViewBuffer zcb) {
+    public int addArraySlice(String id, ViewBuffer zcb) {
         var i = zcb.bufferOffsetIndex;
-        addBytes(ENCODE_SLICE + id + ENCODE_ARRAY + zcb.structString, 8, i, i, i, i, i, i, i, i, 0, 0, 0, 0, 0, 0, 0, 0);
+        return addBytes(ENCODE_SLICE + id + ENCODE_ARRAY + zcb.structString, 8, i, i, i, i, i, i, i, i, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
-    public void addInt8(String id, int value) {
-        addBytes(ENCODE_INT8 + id, 1, value & 255);
+    public int addInt8(String id, int value) {
+        return addBytes(ENCODE_INT8 + id, 1, value & 255);
     }
 
-    public void addInt32(String id, int value) {
-        addBytes(ENCODE_INT32 + id, 4, value & 255, (value >> 8) & 255, (value >> 16) & 255, (value >> 24) & 255);
+    public int addInt32(String id, int value) {
+        return addBytes(ENCODE_INT32 + id, 4, value & 255, (value >> 8) & 255, (value >> 16) & 255, (value >> 24) & 255);
     }
 
-    public void addNullPointerSlice(String id, String type) {
-        addBytes(ENCODE_SLICE + id + ENCODE_ARRAY + type, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    public int addNullPointerSlice(String id, String type) {
+        return addBytes(ENCODE_SLICE + id + ENCODE_ARRAY + type, 8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
     }
 
-    public void addFloat32(String id, float value) {
+    public int addFloat32(String id, float value) {
         var bits = Float.floatToIntBits(value);
-        addBytes(ENCODE_FLOAT32 + id, 4, bits & 255, (bits >> 8) & 255, (bits >> 16) & 255, (bits >> 24) & 255);
+        return addBytes(ENCODE_FLOAT32 + id, 4, bits & 255, (bits >> 8) & 255, (bits >> 16) & 255, (bits >> 24) & 255);
     }
 
-    public void addInt16(String id, int value) {
-        addBytes(ENCODE_INT16 + id, 2, value & 255, (value >> 8) & 255);
+    public int addInt16(String id, int value) {
+        return addBytes(ENCODE_INT16 + id, 2, value & 255, (value >> 8) & 255);
     }
 
-    public void addBool(String id, boolean value) {
-        addBytes(ENCODE_BOOL + id, 1, value ? 1 : 0);
+    public int addBool(String id, boolean value) {
+        return addBytes(ENCODE_BOOL + id, 1, value ? 1 : 0);
     }
 
-    private void addBytes(String id, int alignment, Integer ... bytesToAdd) {
+    private int addBytes(String id, int alignment, Integer ... bytesToAdd) {
         if(type.equals(Type.ARRAY)) throw new IllegalStateException("Warning - illegal operation on array buffer");
         if(locked) throw new IllegalStateException("Cannot alter locked buffers - switch your addition order");
         alignTo(alignment);
+        int startIndex = bytes.size();
         bytes.addAll(Arrays.asList(bytesToAdd));
         if(id != null) structString += ENCODE_SEPARATOR + id;
+        return startIndex;
     }
 
     public void addArrayItem(ViewBuffer zcb) {
@@ -198,22 +201,13 @@ public class ViewBuffer {
         return code.toString();
     }
 
-    public ByteBuffer asByteBuffer(short userDefinedVersion, boolean includeStructEncoding, boolean includeStructEncodingVersionHash) {
-        StringBuilder structEncodingBuilder = new StringBuilder();
-        Set<String> seen = new HashSet<>();
-
-        for (var buffer : staticBuffers.values()) {
-            var s = buffer.structString;
-            if (s.startsWith(ENCODE_STRUCT) && seen.add(s)) { // add() returns false if already present
-                if (!structEncodingBuilder.isEmpty()) structEncodingBuilder.append(ENCODE_SEPARATOR);
-                structEncodingBuilder.append(s);
-            }
-        }
-        while(structEncodingBuilder.length() % 4 != 2) structEncodingBuilder.append(" "); // ensure 4-byte alignment - use != 2 since the length is 2-bytes and we're not aligned to 4 bytes at that point
-        var structEncoding = structEncodingBuilder.toString();
+    public ByteBuffer asByteBuffer(short userDefinedVersion, boolean includeStructEncoding, boolean includeStructEncodingVersionHash, boolean compressBlob) {
+        final var structEncoding = getStructEncodingString();
         System.out.println(generateStructs(structEncoding));
 
-        // build the blob
+        /*
+         * build the data blob first
+         */
         HashMap<Integer, Integer> offsetIndexPositions = new HashMap<>();
         List<Integer> buffersToAdd = new ArrayList<>();
         buffersToAdd.add(bufferOffsetIndex);
@@ -240,27 +234,41 @@ public class ViewBuffer {
             var v = blob.bytes.get(index);
             if(v < 0) {
                 locationsWhereBaseShouldBeAdded.add(index);
-                blob.setInt32tIndex(index, offsetIndexPositions.get(v)); // write the slice offset
-                blob.setInt32tIndex(index + 4, 0); // 4GB max offset since top 4 bytes are set to 0
-                blob.setInt32tIndex(index + 8, staticBuffers.get(v).arrayLength); // write the slice length
-                blob.setInt32tIndex(index + 12, 0); // max length 2,147,483,647, or double this?
+                blob.setInt32Index(index, offsetIndexPositions.get(v)); // write the slice offset
+                blob.setInt32Index(index + 4, 0); // 4GB max offset since top 4 bytes are set to 0
+                blob.setInt32Index(index + 8, staticBuffers.get(v).arrayLength); // write the slice length
+                blob.setInt32Index(index + 12, 0); // max length 2,147,483,647, or double this?
                 index += 15; // the for loop will do the 1 extra step to 16 bytes
             }
         }
 
         if(!blob.bytes.stream().filter(x -> x < 0 || x > 255).toList().isEmpty()) throw new IllegalStateException("Invalid blob value found");
 
+        /*
+            build the header second
+         */
         var header = struct(null);
+
+        // ViewBuffer magic + version
         header.addInt32(null, HEADER_VBUF_MAGIC);
         header.addInt8(null, HEADER_FATBUFFER_VERSION); // version 1
 
+        // flags
         int flags = 0;
+        flags |= compressBlob ? HEADER_FLAG_COMPRESS_DATA : 0;
         flags |= includeStructEncoding ? HEADER_FLAG_INCLUDE_STRUCT_ENCODING : 0;
         flags |= includeStructEncodingVersionHash ? HEADER_FLAG_INCLUDE_STRUCT_ENCODING_VERSION_HASH : 0;
         header.addInt8(null, flags); // not compressed, includes encoding and encoding hash
 
+        // user-defined blob version number
         header.addInt16(null, userDefinedVersion);
 
+        // header, compressed file size, decompressed file size (compressed blob size may be same as final blob size)
+        var HEADER_SIZE_POST_FILL_OFFSET = header.addInt32(null, 0); // header file size - post filled later
+        var COMPRESSED_BLOB_SIZE_POST_FILL_OFFSET = header.addInt32(null, 0); // compressedBlobFileSize - post filled later
+        var FINAL_BLOB_SIZE_POST_FILL_OFFSET = header.addInt32(null, 0); // decompressedBlobFileSize - post filled later
+
+        // struct encoding hash
         if(includeStructEncodingVersionHash) {
             try {
                 MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -275,17 +283,29 @@ public class ViewBuffer {
             }
         }
 
+        // struct encoding
         if (includeStructEncoding) {
             header.addInt16(null, structEncoding.length()); // length of struct encoding
             for (var c : structEncoding.getBytes(StandardCharsets.UTF_8)) header.addInt8(null, c);
         }
 
-        header.addInt32(null, locationsWhereBaseShouldBeAdded.size()); // number of offsets to store
+        // # offsets to store + offsets
+        header.addInt32(null, locationsWhereBaseShouldBeAdded.size());
         for(var offset : locationsWhereBaseShouldBeAdded) header.addInt32(null, offset);
 
+        // sanity check
         if(!header.bytes.stream().filter(x -> x < 0 || x > 255).toList().isEmpty()) throw new IllegalStateException("Invalid header value found");
 
-        ByteBuffer out = ByteBuffer.allocate(blob.size() + header.size()); // write the bytes out
+        // post fill the header, blob, and compressed blob sizes if present
+        header.setInt32Index(HEADER_SIZE_POST_FILL_OFFSET, header.size());
+        header.setInt32Index(FINAL_BLOB_SIZE_POST_FILL_OFFSET, blob.size());
+        if(compressBlob) blob = ViewBuffer.compress(blob);
+        header.setInt32Index(COMPRESSED_BLOB_SIZE_POST_FILL_OFFSET, blob.size());
+
+        /*
+            combine the header + blob
+         */
+        ByteBuffer out = ByteBuffer.allocate(header.size() + blob.size()); // write the bytes out
         header.bytes.forEach(x -> out.put((byte)(x & 255)));
         blob.bytes.forEach(x -> out.put((byte)(x & 255)));
 
@@ -294,14 +314,33 @@ public class ViewBuffer {
         return out.flip();
     }
 
-    private void setInt32tIndex(int index, int value) {
+    private static String getStructEncodingString() {
+        StringBuilder structEncodingBuilder = new StringBuilder();
+        Set<String> seen = new HashSet<>();
+
+        for (var buffer : staticBuffers.values()) {
+            var s = buffer.structString;
+            if (s.startsWith(ENCODE_STRUCT) && seen.add(s)) { // add() returns false if already present
+                if (!structEncodingBuilder.isEmpty()) structEncodingBuilder.append(ENCODE_SEPARATOR);
+                structEncodingBuilder.append(s);
+            }
+        }
+        while(structEncodingBuilder.length() % 4 != 2) structEncodingBuilder.append(" "); // ensure 4-byte alignment - use != 2 since the length is 2-bytes and we're not aligned to 4 bytes at that point
+        var structEncoding = structEncodingBuilder.toString();
+        return structEncoding;
+    }
+
+    private void setInt32Index(int index, int value) {
         for (int i = 0; i < 4; i++) bytes.set(index + i, (value >> (8 * i)) & 0xFF);
     }
 
     int size() { return bytes.size(); }
 
-    public void writeBuffer(String outFilePath, short userDefinedVersionNumber, boolean includeStructEncoding, boolean includeStructEncodingVersionHash) {
-        var out = asByteBuffer(userDefinedVersionNumber, includeStructEncoding, includeStructEncodingVersionHash);
+    public void writeBuffer(String outFilePath, short userDefinedVersionNumber,
+                            boolean includeStructEncoding,
+                            boolean includeStructEncodingVersionHash,
+                            boolean compressBlob) {
+        var out = asByteBuffer(userDefinedVersionNumber, includeStructEncoding, includeStructEncodingVersionHash, compressBlob);
         Path filePath = Path.of(outFilePath);
 
         try {
