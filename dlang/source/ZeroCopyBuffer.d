@@ -79,7 +79,7 @@ struct SaferRawSlice(T) {
     }
 }
 
-SaferRawSlice!ubyte loadViewBuffer(const char* fileName) @nogc nothrow {
+SaferRawSlice!ubyte loadViewBuffer(const char* fileName) {
 
     /*
 
@@ -157,31 +157,21 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) @nogc nothrow {
         GET THE BLOB BYTES (POSSIBLY COMPRESSED)
      */
 
-    SaferRawSlice!ubyte decompressedBlob = (() {
-        if (compressed) {
-            auto temp = loadBinary(fileName, headerSize, headerSize + compressedSize);
-            auto flat = decompress(temp.slice(), finalBlobSize);
-            return SaferRawSlice!ubyte(flat.ptr, flat.length);
-        }
-        else {
-            auto temp = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
-            return SaferRawSlice!ubyte.move(temp);
-        }
-    })();
+    ubyte[] rawSlice;
 
-    //SaferRawSlice!ubyte decompressedBlob = SaferRawSlice!ubyte.empty();
-    //
-    //if (compressed) {
-    //    auto temp   = loadBinary(fileName, headerSize, headerSize + compressedSize);
-    //    //auto slice  = temp.slice();
-    //    auto flat = decompress(temp.slice(), finalBlobSize);
-    //    decompressedBlob = SaferRawSlice!ubyte(flat);
-    //}
-    //else {
-    //    auto temp = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
-    //    decompressedBlob = SaferRawSlice!ubyte.move(temp);
-    //}
+    if (compressed) {
+        // read compressed bytes, then decompress into a GC‑ or malloc‑owned slice
+        auto temp    = loadBinary(fileName, headerSize, headerSize + compressedSize);
+        rawSlice     = decompress(temp.slice(), finalBlobSize);
+    }
+    else {
+        // read uncompressed bytes
+        auto temp    = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
+        rawSlice     = temp.slice();
+    }
 
+    // 2) Now construct exactly one SaferRawSlice from that slice
+    auto decompressedBlob = SaferRawSlice!ubyte(rawSlice);
     auto decompressedBlobSlice = decompressedBlob.slice();
 
     /*
@@ -333,8 +323,7 @@ string getType(string code) @nogc nothrow {
     else return code;
 }
 
-version (BetterC)
-{
+version (BetterC) {
     import core.stdc.stdlib : malloc, free;
     import core.stdc.zlib   : uncompress, Z_OK;
     import core.stdc.stdio  : printf;
@@ -367,17 +356,24 @@ version (BetterC)
         return destPtr[0 .. destLen];
     }
 }
-else
-{
-    import std.zlib    : uncompress;
-    import std.stdio   : writeln;
+else {
+    import core.stdc.stdlib : malloc, free;
+    import core.stdc.zlib   : uncompress, Z_OK;
+    import core.stdc.stdio  : printf;
 
-    /// Runtime D: GC‑backed slice
-    ubyte[] decompress(const(ubyte)[] comp, size_t = 0)
-    {
-        auto outData = cast(ubyte[]) uncompress(cast(void[]) comp);
-        writeln("Decompressed size: ", outData.length);
-        return outData;
+    ubyte[] decompress(const(ubyte)[] comp, size_t expectedSize) {
+        auto destPtr = cast(ubyte*) malloc(expectedSize);
+        if (destPtr is null) return [];
+
+        size_t destLen = expectedSize;
+        int status = uncompress(destPtr, &destLen, comp.ptr, comp.length);
+        if (status != Z_OK) {
+            free(destPtr);
+            return [];
+        }
+
+        printf("Decompressed size: %zu\n", destLen);
+        return destPtr[0 .. destLen];
     }
 }
 
@@ -635,6 +631,7 @@ unittest {
         printf("len1 = %d\n", fb.sounds[1].decompressedBytes.length);
     }
     else {
+        import std.stdio;
         writeln(*fb);
     }
 }
