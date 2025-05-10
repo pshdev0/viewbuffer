@@ -3,8 +3,6 @@ module dzero;
 import core.stdc.stdio : FILE, fopen, fread, fclose, fseek, ftell, fclose, printf;
 import core.stdc.stdlib : malloc, free;
 import core.stdc.string : memset, strcmp;
-//import std.zlib : uncompress;
-//import std.stdio : writeln;
 
 enum ENCODE_SEPARATOR = ',';
 enum ENCODE_STRUCT = '$';
@@ -14,34 +12,47 @@ enum ENCODE_ARRAY = '[';
 enum TAB = "   ";
 
 struct SaferRawSlice(T) {
-    T[] data;
-    bool _valid;
-    bool _secret;
+    T[]    data;
+    bool   _valid;
+    bool   _secret;
     string id;
 
-    @disable this();
+    @disable this();                    // no default constructor
+    @disable SaferRawSlice opAssign(typeof(this)); // disable default copy-assign
 
-    this(T* ptr, size_t length) @nogc nothrow {
-        this(ptr, length, false);
+    // move-postblit: steals resources from src
+    this(ref SaferRawSlice src) @nogc nothrow {
+        // steal fields
+        data    = src.data;
+        _valid  = src._valid;
+        _secret = src._secret;
+        id      = src.id;
+
+        // leave src inert
+        src.data    = null;
+        src._valid  = false;
+        src._secret = false;
+        src.id      = null;
     }
 
-    this(T* ptr, size_t length, bool secret) @nogc nothrow {
-        data = ptr[0 .. length];
-        _valid = true;
+    this(T[] slice) @nogc nothrow {
+        this(slice.ptr, slice.length, false);
+    }
+
+    this(T* ptr, size_t length, bool secret = false) @nogc nothrow {
+        data    = ptr[0 .. length];
+        _valid  = true;
         _secret = secret;
     }
 
     ~this() @nogc nothrow {
         if (_valid && data.ptr !is null) {
-            free(data.ptr);
-            printf("SaferRawSlice: freed buffer");
-
-            if(_secret) {
+            if (_secret) {
                 memset(data.ptr, 0, data.length * T.sizeof);
-                printf(" and memory sanitised");
+                printf("Memory sanitised and ");
             }
-
-            printf("\n");
+            free(data.ptr);
+            printf("SaferRawSlice buffer freed\n");
         }
     }
 
@@ -57,12 +68,13 @@ struct SaferRawSlice(T) {
         return _valid;
     }
 
+    // Explicit move helper
     static SaferRawSlice!T move(ref SaferRawSlice!T src) @nogc nothrow {
-        auto tmp = src;
-        src.data = null;
-        src.id = null;
-        src._valid = false;
+        auto tmp = src;       // uses move-postblit
+        src.data    = null;
+        src._valid  = false;
         src._secret = false;
+        src.id      = null;
         return tmp;
     }
 }
@@ -145,17 +157,30 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) @nogc nothrow {
         GET THE BLOB BYTES (POSSIBLY COMPRESSED)
      */
 
-    SaferRawSlice!ubyte decompressedBlob = SaferRawSlice!ubyte.empty();
+    SaferRawSlice!ubyte decompressedBlob = (() {
+        if (compressed) {
+            auto temp = loadBinary(fileName, headerSize, headerSize + compressedSize);
+            auto flat = decompress(temp.slice(), finalBlobSize);
+            return SaferRawSlice!ubyte(flat.ptr, flat.length);
+        }
+        else {
+            auto temp = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
+            return SaferRawSlice!ubyte.move(temp);
+        }
+    })();
 
-    if (compressed) {
-        auto temp = loadBinary(fileName, headerSize, headerSize + compressedSize);
-        decompressedBlob = SaferRawSlice!ubyte.move(temp);
-        // todo - decompress and set decompressedBlob
-    }
-    else {
-        auto temp = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
-        decompressedBlob = SaferRawSlice!ubyte.move(temp);
-    }
+    //SaferRawSlice!ubyte decompressedBlob = SaferRawSlice!ubyte.empty();
+    //
+    //if (compressed) {
+    //    auto temp   = loadBinary(fileName, headerSize, headerSize + compressedSize);
+    //    //auto slice  = temp.slice();
+    //    auto flat = decompress(temp.slice(), finalBlobSize);
+    //    decompressedBlob = SaferRawSlice!ubyte(flat);
+    //}
+    //else {
+    //    auto temp = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
+    //    decompressedBlob = SaferRawSlice!ubyte.move(temp);
+    //}
 
     auto decompressedBlobSlice = decompressedBlob.slice();
 
@@ -307,13 +332,6 @@ string getType(string code) @nogc nothrow {
     else if (code == "bp") return "ubyte*";
     else return code;
 }
-
-//ubyte[] decompress(ubyte[] compressedBytes) {
-//    // `uncompress` returns void[], cast to ubyte[]
-//    ubyte[] decompressed = cast(ubyte[]) uncompress(cast(void[]) compressedBytes);
-//    writeln("Decompressed size: ", decompressed.length);
-//    return decompressed;
-//}
 
 version (BetterC)
 {
