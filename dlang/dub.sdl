@@ -1,0 +1,23 @@
+name "dzero"
+description "d zero copy flat buffer"
+
+sourcePaths "source"
+
+configuration "default" {
+    dependency "inmath" version="~>1.0.5"
+
+    targetType "executable"
+    targetPath "out/"
+    workingDirectory "out/"
+//    lflags "-framework" "CoreData" "-framework" "CoreGraphics" "-framework" "Foundation" "-all_load"
+    copyFiles "libs/*" "files/*"
+}
+
+configuration "betterc" {
+    targetType "executable"
+    dflags "-betterC"
+    lflags "-lz"
+    targetPath "out/"
+    workingDirectory "out/"
+    versions "BetterC"
+}
