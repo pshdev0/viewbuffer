@@ -11,36 +11,38 @@ enum ENCODE_INSITU_STRUCT = '^';
 enum ENCODE_ARRAY = '[';
 enum TAB = "   ";
 
+version (BetterC) enum NO_GC_NO_THROW_COMPAT = "@nogc nothrow"; else enum NO_GC_NO_THROW_COMPAT = "";
+
 struct SaferRawSlice(T) {
-    T[]    data;
-    bool   _valid;
-    bool   _secret;
-    string id;
+    T[] data;
+    string _id;
+    bool _valid;
+    bool _secret;
 
-    @disable this();                    // no default constructor
-    @disable SaferRawSlice opAssign(typeof(this)); // disable default copy-assign
+    @disable this();
+    @disable SaferRawSlice opAssign(SaferRawSlice rhs);
 
-    // move-postblit: steals resources from src
     this(ref SaferRawSlice src) @nogc nothrow {
         // steal fields
-        data    = src.data;
-        _valid  = src._valid;
+        data = src.data;
+        _valid = src._valid;
         _secret = src._secret;
-        id      = src.id;
+        _id = src._id;
 
         // leave src inert
-        src.data    = null;
-        src._valid  = false;
+        src.data = null;
+        src._valid = false;
         src._secret = false;
-        src.id      = null;
+        src._id = null;
     }
 
-    this(T[] slice) @nogc nothrow {
-        this(slice.ptr, slice.length, false);
+    this(T[] slice, string id) @nogc nothrow {
+        this(slice.ptr, slice.length, id, false);
     }
 
-    this(T* ptr, size_t length, bool secret = false) @nogc nothrow {
+    this(T* ptr, size_t length, string id, bool secret = false) @nogc nothrow {
         data    = ptr[0 .. length];
+        _id = id;
         _valid  = true;
         _secret = secret;
     }
@@ -49,10 +51,19 @@ struct SaferRawSlice(T) {
         if (_valid && data.ptr !is null) {
             if (_secret) {
                 memset(data.ptr, 0, data.length * T.sizeof);
-                printf("Memory sanitised and ");
+                // include id
+                printf("SaferRawSlice: Memory sanitised [%.*s]\n",
+                cast(int) _id.length, _id.ptr);
             }
+
+            // include id
+            printf("SaferRawSlice: freeing buffer [%.*s]...\n",
+            cast(int) _id.length, _id.ptr);
             free(data.ptr);
-            printf("SaferRawSlice buffer freed\n");
+
+            // include id
+            printf("SaferRawSlice: buffer freed [%.*s]\n",
+            cast(int) _id.length, _id.ptr);
         }
     }
 
@@ -60,22 +71,55 @@ struct SaferRawSlice(T) {
         return data;
     }
 
-    static SaferRawSlice!T empty() @nogc nothrow {
-        return SaferRawSlice!T.init;
-    }
-
     bool valid() @nogc nothrow {
         return _valid;
     }
 
-    // Explicit move helper
+    static SaferRawSlice!T empty() @nogc nothrow {
+        return SaferRawSlice!T.init;
+    }
+
     static SaferRawSlice!T move(ref SaferRawSlice!T src) @nogc nothrow {
-        auto tmp = src;       // uses move-postblit
-        src.data    = null;
-        src._valid  = false;
-        src._secret = false;
-        src.id      = null;
+        auto tmp = SaferRawSlice!T(src);  // steal via move-postblit
         return tmp;
+    }
+
+    string id() @nogc nothrow { return _id; }
+}
+
+// helper that returns the right slice in one shot
+version(BetterC) {
+    SaferRawSlice!ubyte loadDecompressedBlob(const char* fileName, bool compressed, size_t headerSize, size_t compressedSize, size_t finalBlobSize) {
+        if (compressed) {
+            auto temp = loadBinary(fileName, "compressed blob", headerSize, headerSize + compressedSize);
+            auto raw = decompress(temp.slice(), finalBlobSize);
+            // calls your (slice, id) ctor
+            return SaferRawSlice!ubyte(raw.ptr, raw.length, "decompressed blob");
+        }
+        else {
+            auto temp = loadBinary(fileName, "uncompressed blob", headerSize, headerSize + finalBlobSize);
+            // steals via move-postblit
+            auto s = SaferRawSlice!ubyte.move(temp);
+            s._id = "decompressed blob";      // fix up the id if you need
+            return s;
+        }
+    }
+}
+else {
+    SaferRawSlice!ubyte loadDecompressedBlob(const char* fileName, bool compressed, size_t headerSize, size_t compressedSize, size_t finalBlobSize) {
+        if (compressed) {
+            auto temp = loadBinary(fileName, "compressed blob", headerSize, headerSize + compressedSize);
+            auto raw = decompress(temp.slice(), finalBlobSize);
+            // calls your (slice, id) ctor
+            return SaferRawSlice!ubyte(raw.ptr, raw.length, "decompressed blob");
+        }
+        else {
+            auto temp = loadBinary(fileName, "uncompressed blob", headerSize, headerSize + finalBlobSize);
+            // steals via move-postblit
+            auto s = SaferRawSlice!ubyte.move(temp);
+            s._id = "decompressed blob";      // fix up the id if you need
+            return s;
+        }
     }
 }
 
@@ -109,7 +153,7 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) {
         DECODE THE MAIN HEADER DETAILS
      */
 
-    auto header1 = loadBinary(fileName, 0, 20); // read only first 20 bytes
+    auto header1 = loadBinary(fileName, "header1 blob", 0, 20); // read only first 20 bytes
     auto headerSlice1 = header1.slice();
     auto headerPtr1 = headerSlice1.ptr;
 
@@ -157,28 +201,34 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) {
         GET THE BLOB BYTES (POSSIBLY COMPRESSED)
      */
 
-    ubyte[] rawSlice;
+    auto decompressedBlob = loadDecompressedBlob(
+        fileName,
+        compressed,
+        headerSize,
+        compressedSize,
+        finalBlobSize
+    );
+    //SaferRawSlice!ubyte decompressedBlob = SaferRawSlice!ubyte.empty();
+    //
+    //if (compressed) {
+    //    // read compressed bytes, then decompress into a GC‑ or malloc‑owned slice
+    //    auto temp    = loadBinary(fileName, "compressed blob", headerSize, headerSize + compressedSize);
+    //    ubyte[] rawSlice = decompress(temp.slice(), finalBlobSize);
+    //    decompressedBlob = SaferRawSlice!ubyte(rawSlice.ptr, rawSlice.length, "uncompressed blob *");
+    //}
+    //else {
+    //    // read uncompressed bytes
+    //    auto temp    = loadBinary(fileName, "uncompressed blob", headerSize, headerSize + finalBlobSize);
+    //    decompressedBlob = SaferRawSlice!ubyte.move(temp);
+    //}
 
-    if (compressed) {
-        // read compressed bytes, then decompress into a GC‑ or malloc‑owned slice
-        auto temp    = loadBinary(fileName, headerSize, headerSize + compressedSize);
-        rawSlice     = decompress(temp.slice(), finalBlobSize);
-    }
-    else {
-        // read uncompressed bytes
-        auto temp    = loadBinary(fileName, headerSize, headerSize + finalBlobSize);
-        rawSlice     = temp.slice();
-    }
-
-    // 2) Now construct exactly one SaferRawSlice from that slice
-    auto decompressedBlob = SaferRawSlice!ubyte(rawSlice);
     auto decompressedBlobSlice = decompressedBlob.slice();
 
     /*
         DECODE REMAINDER OF THE HEADER AND UPDATE THE POINTER OFFSETS
      */
 
-    auto header2 = loadBinary(fileName, 20, headerSize);
+    auto header2 = loadBinary(fileName, "header2 blob", 20, headerSize);
     auto headerSlice2 = header2.slice();
     auto headerPtr2 = headerSlice2.ptr;
 
@@ -237,7 +287,7 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) {
 
 extern(C) nothrow @nogc int posix_memalign(void** memptr, size_t alignment, size_t size);
 
-SaferRawSlice!ubyte loadBinary(const char* fileName, size_t start = 0, size_t end = 0) @nogc nothrow {
+SaferRawSlice!ubyte loadBinary(const char* fileName, string id, size_t start = 0, size_t end = 0) @nogc nothrow {
     FILE* file = fopen(fileName, "rb");
     if (file is null) {
         printf("Could not load file\n");
@@ -287,7 +337,7 @@ SaferRawSlice!ubyte loadBinary(const char* fileName, size_t start = 0, size_t en
         return SaferRawSlice!ubyte.empty();
     }
 
-    return SaferRawSlice!ubyte(buffer, readSize);
+    return SaferRawSlice!ubyte(buffer, readSize, id);
 }
 
 T* getViewBufferSliceAs(T)(ubyte[] rawData) @nogc nothrow {
@@ -541,8 +591,7 @@ unittest {
     fb.packets[0].decompressedBytes = decompress(fb.packets[0].compressedBytes, fb.packets[0].size);
 
     version(BetterC) {
-        printf("len0 = %d\n", fb.sounds[0].decompressedBytes.length);
-        printf("len1 = %d\n", fb.sounds[1].decompressedBytes.length);
+        printf("len0 = %d\n", fb.packets[0].decompressedBytes.length);
     }
     else {
         import std.stdio;

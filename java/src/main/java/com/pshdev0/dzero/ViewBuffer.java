@@ -153,6 +153,11 @@ public class ViewBuffer {
         while (bytes.size() % alignment > 0) bytes.add(0);
     }
 
+    public void reset() {
+        // todo - clear everything
+        //        in the calling program we may need to create a new buffer!
+    }
+
     public String generateStructs(String structEncoding) {
         var types = Map.of(
                 ENCODE_STRING, "immutable(char)",
