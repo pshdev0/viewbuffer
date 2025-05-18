@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ExternalStorageConfigurationManager" enabled="true" />
+  <component name="MavenProjectsManager">
+    <option name="originalFiles">
+      <list>
+        <option value="$PROJECT_DIR$/java/pom.xml" />
+      </list>
+    </option>
+  </component>
+  <component name="ProjectRootManager" version="2" languageLevel="JDK_21_PREVIEW" project-jdk-name="DMD64 D Compiler v2.110.0-rc.1" project-jdk-type="DMD2 SDK">
+    <output url="file://$PROJECT_DIR$/java/out" />
+  </component>
+</project>
