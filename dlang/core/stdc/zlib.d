@@ -15,5 +15,5 @@ extern (C)
         size_t* destLen,
         const ubyte* src,
         size_t srcLen) @nogc nothrow;
-    // …add other zlib functions/constants here if you need them…
+    // ...add other zlib functions/constants here if needed
 }
