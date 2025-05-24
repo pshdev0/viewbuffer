@@ -1,8 +1,8 @@
 module ViewBuffer;
 
-import core.stdc.stdio : FILE, fopen, fread, fclose, fseek, ftell, fclose, printf;
+import core.stdc.stdio : FILE, fopen, fread, fseek, ftell, fclose, printf;
 import core.stdc.stdlib : malloc, free;
-import core.stdc.string : memset, strcmp;
+import std.algorithm.mutation : move;
 
 enum ENCODE_SEPARATOR = ',';
 enum ENCODE_STRUCT = '$';
@@ -11,115 +11,63 @@ enum ENCODE_INSITU_STRUCT = '^';
 enum ENCODE_ARRAY = '[';
 enum TAB = "   ";
 
-version (BetterC) enum NO_GC_NO_THROW_COMPAT = "@nogc nothrow"; else enum NO_GC_NO_THROW_COMPAT = "";
-
 struct SaferRawSlice(T) {
-    T[] data;
-    string _id;
-    bool _valid;
-    bool _secret;
+    private T[]   _data;
+    private string _id;
 
-    @disable this();
-    @disable SaferRawSlice opAssign(SaferRawSlice rhs);
+    // move-only: disable postblit copy & copy-assign
+    @disable this(this);
+    @disable void opAssign(SaferRawSlice rhs);
 
-    this(ref SaferRawSlice src) @nogc nothrow {
-        // steal fields
-        data = src.data;
-        _valid = src._valid;
-        _secret = src._secret;
-        _id = src._id;
-
-        // leave src inert
-        src.data = null;
-        src._valid = false;
-        src._secret = false;
-        src._id = null;
-    }
-
+    // adopt a malloc’d slice + identifier
     this(T[] slice, string id) @nogc nothrow {
-        this(slice.ptr, slice.length, id, false);
+        _data = slice;
+        _id   = id;
     }
 
-    this(T* ptr, size_t length, string id, bool secret = false) @nogc nothrow {
-        data    = ptr[0 .. length];
-        _id = id;
-        _valid  = true;
-        _secret = secret;
-    }
-
-    ~this() @nogc nothrow {
-        if (_valid && data.ptr !is null) {
-            if (_secret) {
-                memset(data.ptr, 0, data.length * T.sizeof);
-                // include id
-                printf("SaferRawSlice: Memory sanitised [%.*s]\n",
-                cast(int) _id.length, _id.ptr);
-            }
-
-            // include id
-            printf("SaferRawSlice: freeing buffer [%.*s]...\n",
-            cast(int) _id.length, _id.ptr);
-            free(data.ptr);
-
-            // include id
-            printf("SaferRawSlice: buffer freed [%.*s]\n",
-            cast(int) _id.length, _id.ptr);
-        }
-    }
-
-    T[] slice() @nogc nothrow {
-        return data;
-    }
-
-    bool valid() @nogc nothrow {
-        return _valid;
-    }
-
+    // empty factory
     static SaferRawSlice!T empty() @nogc nothrow {
         return SaferRawSlice!T.init;
     }
 
-    static SaferRawSlice!T move(ref SaferRawSlice!T src) @nogc nothrow {
-        auto tmp = SaferRawSlice!T(src);  // steal via move-postblit
-        return tmp;
+    // check validity
+    @property bool valid() const @nogc nothrow {
+        return _data.ptr !is null;
     }
 
-    string id() @nogc nothrow { return _id; }
+    // RAII cleanup + logging
+    ~this() @nogc nothrow {
+        if (_data.ptr) {
+            printf("SaferRawSlice: freeing buffer [%.*s]...\n", cast(int)_id.length, _id.ptr);
+            free(_data.ptr);
+            printf("SaferRawSlice: buffer freed  [%.*s]\n", cast(int)_id.length, _id.ptr);
+        }
+    }
+
+    // slice-style access
+    @property size_t length() const @nogc nothrow { return _data.length; }
+    @property T* ptr() @nogc nothrow { return _data.ptr;    }
+    ref T opIndex(size_t i) @nogc nothrow { return _data[i];      }
+    T[] opSlice() @nogc nothrow { return _data;         }
+    const(T)[] opSlice() const @nogc nothrow { return _data;         }
+
+    // explicit .slice() convenience
+    T[] slice() @nogc nothrow { return _data; }
+    const(T)[] slice() const @nogc nothrow { return _data; }
+
+    // expose the id
+    @property string id() const @nogc nothrow { return _id; }
 }
 
 // helper that returns the right slice in one shot
-version(BetterC) {
-    SaferRawSlice!ubyte loadDecompressedBlob(const char* fileName, bool compressed, size_t headerSize, size_t compressedSize, size_t finalBlobSize) {
-        if (compressed) {
-            auto temp = loadBinary(fileName, "compressed blob", headerSize, headerSize + compressedSize);
-            auto raw = decompress(temp.slice(), finalBlobSize);
-            // calls your (slice, id) ctor
-            return SaferRawSlice!ubyte(raw.ptr, raw.length, "decompressed blob");
-        }
-        else {
-            auto temp = loadBinary(fileName, "uncompressed blob", headerSize, headerSize + finalBlobSize);
-            // steals via move-postblit
-            auto s = SaferRawSlice!ubyte.move(temp);
-            s._id = "decompressed blob";      // fix up the id if you need
-            return s;
-        }
+SaferRawSlice!ubyte loadDecompressedBlob(const char* fileName, bool compressed, size_t headerSize, size_t compressedSize, size_t finalBlobSize) {
+    if (compressed) {
+        auto temp = loadBinary(fileName, "compressed blob", headerSize, headerSize + compressedSize);
+        auto raw = decompress(temp.slice(), finalBlobSize);
+        return SaferRawSlice!ubyte(raw, "decompressed blob");
     }
-}
-else {
-    SaferRawSlice!ubyte loadDecompressedBlob(const char* fileName, bool compressed, size_t headerSize, size_t compressedSize, size_t finalBlobSize) {
-        if (compressed) {
-            auto temp = loadBinary(fileName, "compressed blob", headerSize, headerSize + compressedSize);
-            auto raw = decompress(temp.slice(), finalBlobSize);
-            // calls your (slice, id) ctor
-            return SaferRawSlice!ubyte(raw.ptr, raw.length, "decompressed blob");
-        }
-        else {
-            auto temp = loadBinary(fileName, "uncompressed blob", headerSize, headerSize + finalBlobSize);
-            // steals via move-postblit
-            auto s = SaferRawSlice!ubyte.move(temp);
-            s._id = "decompressed blob";      // fix up the id if you need
-            return s;
-        }
+    else {
+        return loadBinary(fileName, "original blob", headerSize, headerSize + finalBlobSize);
     }
 }
 
@@ -185,6 +133,7 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) {
         finalBlobSize
     );
 
+    if (!decompressedBlob.valid) return SaferRawSlice!ubyte.empty();
     auto decompressedBlobSlice = decompressedBlob.slice();
 
     /*
@@ -245,7 +194,7 @@ SaferRawSlice!ubyte loadViewBuffer(const char* fileName) {
 
     // headerSlice1, headerSlice2, and compresedBlobSlice (if the data was compressed)
     // memory will be deallocated on scope exit via SaferRawSlice
-    return SaferRawSlice!ubyte.move(decompressedBlob);
+    return move(decompressedBlob);
 }
 
 extern(C) nothrow @nogc int posix_memalign(void** memptr, size_t alignment, size_t size);
@@ -300,7 +249,7 @@ SaferRawSlice!ubyte loadBinary(const char* fileName, string id, size_t start = 0
         return SaferRawSlice!ubyte.empty();
     }
 
-    return SaferRawSlice!ubyte(buffer, readSize, id);
+    return SaferRawSlice!ubyte(buffer[0.. readSize], id);
 }
 
 T* getViewBufferSliceAs(T)(ubyte[] rawData) @nogc nothrow {
@@ -389,7 +338,6 @@ else {
         return destPtr[0 .. destLen];
     }
 }
-
 
 void generateStructs(string structEncoding) @nogc nothrow {
     size_t start = 0;

@@ -1,0 +1,35 @@
+name "viewbuffer"
+description "A D library for efficient buffering"
+version "0.1.0"
+
+# Point at your D source and test dirs under the dlang folder
+sourcePaths    "dlang/src"
+testSourcePaths "dlang/tests"
+
+configuration "default" {
+    dependency    "inmath" version="~>1.0.5"
+    dependency "automem" version="~>0.6.11"
+
+    targetType    "library"
+    libraryType   "static"
+
+    # Optional: where to drop your .a and what files to bundle
+    targetPath       "dlang/out"
+    workingDirectory "dlang/out"
+    copyFiles        "dlang/libs/*" "files/*"
+}
+
+configuration "betterc" {
+    dependency    "inmath" version="~>1.0.5"
+    dependency "automem" version="~>0.6.11"
+
+    targetType    "library"
+    libraryType   "static"
+
+    dflags        "-betterC"
+    lflags        "-lz"
+    versions      "BetterC"
+
+    targetPath       "dlang/out"
+    workingDirectory "dlang/out"
+}
