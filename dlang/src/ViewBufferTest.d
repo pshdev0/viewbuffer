@@ -26,7 +26,7 @@ unittest {
         printf("Could not load the buffer\n");
         assert(false);
     }
-    auto fb = getViewBufferSliceAs!Core(rawData.slice());
+    auto fb = getViewBufferSliceAs!Core(rawData[]);
 
     if(fb is null) {
         printf("error viewing buffer");
@@ -122,7 +122,7 @@ unittest {
         printf("Could not load the buffer\n");
         return;
     }
-    auto fb = getViewBufferSliceAs!PipelineConfig(rawData.slice());
+    auto fb = getViewBufferSliceAs!PipelineConfig(rawData[]);
 
     if(fb is null) {
         printf("error viewing buffer");
@@ -148,7 +148,7 @@ unittest {
 
     // Network 0
     auto net0 = fb.networks[0];
-    assert(assertString(net0.id, 9, "Network_0"));
+    assert(assertString(net0.id, 9,  "Network_0"));
     assert(net0.devices.length == 1);
     auto dev0 = net0.devices[0];
     assert(assertString(dev0.id, 8, "Device_0"));
